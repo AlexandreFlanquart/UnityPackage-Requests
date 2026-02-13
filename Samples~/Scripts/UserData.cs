@@ -1,5 +1,6 @@
 using System;
 using Firebase.Firestore;
+using MyUnityPackage.Requests;
 
 namespace MyUnityPackage.Requests.Samples
 {
@@ -15,11 +16,13 @@ namespace MyUnityPackage.Requests.Samples
     [FirestoreData]
     public sealed class UserData : IFirestoreData
     {
-        [FirestoreProperty]
-        public string Description{ get; set; }
-        [FirestoreProperty]
+        [FirestoreProperty("description")]
+        public string Description { get; set; }
+        
+        [FirestoreProperty("age")]
         public int Age { get; set; }
-        [FirestoreProperty]
+        
+        [FirestoreProperty("role")]
         public UserRole Role { get; set; }
 
         public UserData()
