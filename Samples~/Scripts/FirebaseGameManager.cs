@@ -20,6 +20,7 @@ namespace MyUnityPackage.Requests.Samples
            
             _account = ServiceLocator.GetService<AccountManager>();
             _account.OnSignOut += OnUserSignedOut;
+            _account.OnInitialized += OnAccountInitialized;
             _account.gameObject.SetActive(true);
         }
 
@@ -28,6 +29,18 @@ namespace MyUnityPackage.Requests.Samples
             if (_account != null)
             {
                 _account.OnSignOut -= OnUserSignedOut;
+                _account.OnInitialized -= OnAccountInitialized;
+            }
+        }
+
+        private async void OnAccountInitialized()
+        {
+            _uiConnexion.HideLoadingScreen();
+            // Si l'utilisateur est déjà connecté (et email vérifié) au démarrage, on affiche directement les données de jeu
+            if (_account.IsSignedIn && _account.IsEmailVerified)
+            {
+                MUPLogger.Info("[FirebaseGameManager] User already signed in on startup. Showing game data.");
+                await ShowGameDataAsync();
             }
         }
 

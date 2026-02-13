@@ -23,6 +23,7 @@ namespace MyUnityPackage.Requests
 
         public event Action OnSignIn;
         public event Action OnSignOut;
+        public event Action OnInitialized;
 
         private async void Awake()
         {
@@ -40,6 +41,7 @@ namespace MyUnityPackage.Requests
                 
                 IsInitialized = true;
                 MUPLogger.Info("[AccountManager] Initialized successfully.");
+                OnInitialized?.Invoke();
             }
             catch (Exception ex)
             {

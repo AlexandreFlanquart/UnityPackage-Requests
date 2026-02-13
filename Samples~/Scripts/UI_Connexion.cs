@@ -10,6 +10,7 @@ namespace MyUnityPackage.Requests.Samples
     public sealed class UI_Connexion : UI_Base
     {
         [Header("Panels")]
+        [SerializeField] private GameObject loadingScreen;
         [SerializeField] private GameObject signInPanel;
         [SerializeField] private GameObject signUpPanel;
         [SerializeField] private GameObject verifyEmailPanel;
@@ -95,6 +96,10 @@ namespace MyUnityPackage.Requests.Samples
         }
 
         #region UI Helpers
+        public void HideLoadingScreen(){
+            if (loadingScreen != null) loadingScreen.SetActive(false);
+        }
+
         private void ShowFeedbackLogin(string message, bool isError = true)
         {
             MUPLogger.Info($"[UI_Connexion] Showing feedback: {message}");

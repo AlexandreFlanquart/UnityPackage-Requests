@@ -53,6 +53,7 @@ namespace MyUnityPackage.Requests
             _auth = FirebaseAuth.DefaultInstance;
             _auth.StateChanged += OnAuthStateChanged;
             _user = _auth.CurrentUser;
+            await ReloadUserAsync();
 
             IsInitialized = true;
             MUPLogger.Info("[FirebaseAuthService] Initialized successfully.");
