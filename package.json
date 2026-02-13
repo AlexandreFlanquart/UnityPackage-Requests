@@ -1,8 +1,8 @@
 {
-  "name": "com.myunitypackage.name",
+  "name": "com.myunitypackage.userbackend",
   "version": "1.0.0",
-  "displayName": "UnityPackage - Name ",
-  "description": "UnityPackage - Name ",
+  "displayName": "UnityPackage - UserBackend",
+  "description": "A comprehensive Unity package providing backend utilities, request handling, and integration helpers for user-related features.",
   "unity": "6000.0",
   "dependencies": {},
   "author": {
@@ -13,5 +13,11 @@
       "name": "Victor Simon"
     }
   ],
-  "_fingerprint": "bd08764d6c556daec82e29ef3bd9406a883988fa"
+  "samples": [
+    {
+      "displayName": "UserBackend Examples",
+      "description": "Sample scenes showcasing typical user-related backend request flows, configuration of request components, and integration patterns with the UserBackend package.",
+      "path": "Samples~"
+    }
+  ]
 }

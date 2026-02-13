@@ -1,5 +1,5 @@
-# MYUNITYPACKAGE-NAME-UNITY
-Package for Unity.
+# MYUNITYPACKAGE-USERBACKEND
+A package to help you manage user-related backend requests, with utilities for request handling, configuration, and integration into your Unity projects.
 
 <br>
 
@@ -15,12 +15,12 @@ This guide explains how to install this Unity package using the **Unity Package 
 1. In the **Package Manager**, click the **➕** button (top left corner).
 2. Select **"Add package from git URL..."**.
 3. Enter the following Git repository URL: <br>
-   https://github.com/name/package.git
+   https://github.com/AlexandreFlanquart/UnityPackage-Requests.git
 4. Click **"Add"**, and Unity will download and install the package.
 
 ### 🔹 3. Install a Specific Version (Optional)
 If you want to install a specific release, **append the tag** at the end of the URL: <br>
-https://github.com/name/package.git#v1.0.0
+https://github.com/AlexandreFlanquart/UnityPackage-Requests.git#v1.0.0
 
 This ensures you get the exact version you need.
 
