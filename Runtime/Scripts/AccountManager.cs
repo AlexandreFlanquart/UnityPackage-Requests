@@ -38,12 +38,16 @@ namespace MyUnityPackage.Requests
            
             try
             {     
+                // Yield to allow other Start() methods to subscribe to OnInitialized event
+                await Task.Yield();
+
                 await FirebaseBootstrap.InitializeAsync();
                 await FirestoreService.InitializeAsync();
                 await AuthService.InitializeAsync();
                 
                 IsInitialized = true;
-                MUPLogger.Info("[AccountManager] Initialized successfully.");
+                MUPLogger.Info("[AccountManager] Initialized successfully.");         
+                
                 OnInitialized?.Invoke();
             }
             catch (Exception ex)

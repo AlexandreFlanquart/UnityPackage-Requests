@@ -12,7 +12,7 @@ namespace MyUnityPackage.Requests.Samples
         private UI_GameData _uiGameData;
         private User _user;
 
-        private void Awake()
+        private void Start()
         {
             _uiConnexion = ServiceLocator.GetService<UI_Connexion>();
             _uiGameData = ServiceLocator.GetService<UI_GameData>();
