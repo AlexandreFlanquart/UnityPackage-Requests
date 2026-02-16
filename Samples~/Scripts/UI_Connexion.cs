@@ -92,6 +92,8 @@ namespace MyUnityPackage.Requests.Samples
             if (signUpPanel) signUpPanel.SetActive(false);
             if (verifyEmailPanel) verifyEmailPanel.SetActive(false);
             if (forgotPasswordPanel) forgotPasswordPanel.SetActive(false);
+            signInButton.interactable = true;
+            signUpButton.interactable = true;
             HideAllFeedbacks();
         }
 

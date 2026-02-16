@@ -229,7 +229,6 @@ namespace MyUnityPackage.Requests
 
             MUPLogger.Info("[FirebaseAuthService] Signing out...");
             _auth.SignOut();
-            _user = null;
         }
 
         /// <summary>
