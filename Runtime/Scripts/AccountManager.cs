@@ -25,16 +25,19 @@ namespace MyUnityPackage.Requests
         public event Action OnSignOut;
         public event Action OnInitialized;
 
-        private async void Awake()
+        private  void Awake()
         {
             ServiceLocator.AddService<AccountManager>(gameObject);
+        }
 
+        async void Start()
+        {
             AuthService = new FirebaseAuthService();
             FirestoreService = new FirestoreUserDataService();
             AuthService.AuthStateChanged += OnAuthStateChanged;
            
             try
-            {
+            {     
                 await FirebaseBootstrap.InitializeAsync();
                 await FirestoreService.InitializeAsync();
                 await AuthService.InitializeAsync();

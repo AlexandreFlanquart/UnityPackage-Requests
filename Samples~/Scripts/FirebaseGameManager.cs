@@ -12,7 +12,7 @@ namespace MyUnityPackage.Requests.Samples
         private UI_GameData _uiGameData;
         private User _user;
 
-        private void Start()
+        private void Awake()
         {
             _uiConnexion = ServiceLocator.GetService<UI_Connexion>();
             _uiGameData = ServiceLocator.GetService<UI_GameData>();
@@ -21,7 +21,6 @@ namespace MyUnityPackage.Requests.Samples
             _account = ServiceLocator.GetService<AccountManager>();
             _account.OnSignOut += OnUserSignedOut;
             _account.OnInitialized += OnAccountInitialized;
-            _account.gameObject.SetActive(true); 
         }
 
         private void OnDestroy()
