@@ -1,24 +1,14 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
-using MyUnityPackage.Toolkit;
 using Firebase;
 using Firebase.Auth;
+using Google;
+using MyUnityPackage.Toolkit;
 
 namespace MyUnityPackage.Requests
 {
-    /// <summary>
-    /// Firebase Authentication service providing:
-    /// - Email/Password SignUp, SignIn, SignOut
-    /// - Email verification
-    /// - Password reset
-    /// - Auth state management
-    /// </summary>
     public sealed class FirebaseAuthService : IDisposable
     {
-        /// <summary>
-        /// Fired when the authentication state changes (sign in/out).
-        /// </summary>
         public event Action<bool> AuthStateChanged;
 
         public bool IsInitialized { get; private set; }
@@ -33,10 +23,25 @@ namespace MyUnityPackage.Requests
         private bool _disposed;
         private Task _initTask;
 
-        /// <summary>
-        /// Initializes Firebase Auth (idempotent).
-        /// Safe to call multiple times.
-        /// </summary>
+        private GoogleSignInConfiguration googleConfig;
+        private string webClientId;
+
+        private bool _authBusy = false;
+
+        // ---------------------------------------------------------
+        // CONFIGURATION
+        // ---------------------------------------------------------
+
+        public void SetWebClientId(string id)
+        {
+            webClientId = id;
+            MUPLogger.Info($"[FirebaseAuthService] WebClientId set to: {id}");
+        }
+
+        // ---------------------------------------------------------
+        // INITIALISATION
+        // ---------------------------------------------------------
+
         public Task InitializeAsync()
         {
             _initTask ??= InitializeInternalAsync();
@@ -46,214 +51,377 @@ namespace MyUnityPackage.Requests
         private async Task InitializeInternalAsync()
         {
             if (IsInitialized) return;
-            
-            MUPLogger.Info("[FirebaseAuthService] Initializing...");
+
+            MUPLogger.Info("[FirebaseAuthService] Initializing FirebaseAuthService...");
+
             await FirebaseBootstrap.InitializeAsync();
 
             _auth = FirebaseAuth.DefaultInstance;
             _auth.StateChanged += OnAuthStateChanged;
             _user = _auth.CurrentUser;
-            await ReloadUserAsync();
+
+            googleConfig = new GoogleSignInConfiguration
+            {
+                WebClientId = webClientId,
+                RequestIdToken = true
+            };
+
+            if (_user != null)
+            {
+                MUPLogger.Info("[FirebaseAuthService] Existing user detected, reloading...");
+                await ReloadUserAsync();
+            }
 
             IsInitialized = true;
-            MUPLogger.Info("[FirebaseAuthService] Initialized successfully.");
+            MUPLogger.Info("[FirebaseAuthService] Initialization complete.");
         }
 
-        /// <summary>
-        /// Creates a new user with email and password.
-        /// Automatically sends a verification email on success.
-        /// </summary>
-        /// <param name="email">User's email address.</param>
-        /// <param name="password">User's password (min 6 characters).</param>
-        /// <exception cref="FirebaseAuthException">Thrown when signup fails.</exception>
+        // ---------------------------------------------------------
+        // VERROU & TIMEOUT
+        // ---------------------------------------------------------
+
+        private async Task RunExclusive(Func<Task> action)
+        {
+            if (_authBusy)
+            {
+                MUPLogger.Warning("[FirebaseAuthService] Operation blocked: another auth operation is running.");
+                throw new InvalidOperationException("Another authentication operation is already in progress.");
+            }
+
+            _authBusy = true;
+            MUPLogger.Info("[FirebaseAuthService] Auth lock acquired.");
+
+            try
+            {
+                await action();
+            }
+            finally
+            {
+                _authBusy = false;
+                MUPLogger.Info("[FirebaseAuthService] Auth lock released.");
+            }
+        }
+
+        private async Task<T> WithTimeout<T>(Task<T> task, int timeoutMs = 15000)
+        {
+            var delay = Task.Delay(timeoutMs);
+            var completed = await Task.WhenAny(task, delay);
+
+            if (completed == delay)
+            {
+                MUPLogger.Error("[FirebaseAuthService] Operation timed out.");
+                throw new TimeoutException("The authentication operation timed out.");
+            }
+
+            return await task;
+        }
+
+        private async Task WithTimeout(Task task, int timeoutMs = 15000)
+        {
+            var delay = Task.Delay(timeoutMs);
+            var completed = await Task.WhenAny(task, delay);
+
+            if (completed == delay)
+            {
+                MUPLogger.Error("[FirebaseAuthService] Operation timed out.");
+                throw new TimeoutException("The authentication operation timed out.");
+            }
+
+            await task;
+        }
+
+        // ---------------------------------------------------------
+        // GOOGLE SIGN-IN
+        // ---------------------------------------------------------
+
+        public async Task SignInWithGoogleAsync()
+        {
+            EnsureReady();
+
+            await RunExclusive(async () =>
+            {
+                MUPLogger.Info("[FirebaseAuthService] Starting Google Sign-In...");
+
+                try
+                {
+                    GoogleSignIn.Configuration = googleConfig;
+
+                    GoogleSignInUser googleUser = await WithTimeout(
+                        GoogleSignIn.DefaultInstance.SignIn(),
+                        15000
+                    );
+
+                    MUPLogger.Info("[FirebaseAuthService] Google token received, signing into Firebase...");
+
+                    var credential = GoogleAuthProvider.GetCredential(googleUser.IdToken, null);
+
+                    var result = await WithTimeout(
+                        _auth.SignInWithCredentialAsync(credential),
+                        15000
+                    );
+
+                    _user = result;
+
+                    MUPLogger.Info($"[FirebaseAuthService] Google Sign-In success. User: {_user.DisplayName}");
+                }
+                catch (Exception ex)
+                {
+                    MUPLogger.Error("[FirebaseAuthService] Google Sign-In failed: " + ex.Message);
+                    throw;
+                }
+            });
+        }
+
+        public void SignOutGoogle()
+        {
+            EnsureReady();
+            MUPLogger.Info("[FirebaseAuthService] Signing out from Google...");
+
+            _auth.SignOut();
+            GoogleSignIn.DefaultInstance.SignOut();
+
+            MUPLogger.Info("[FirebaseAuthService] Google Sign-Out complete.");
+        }
+
+        public void DisconnectGoogle()
+        {
+            EnsureReady();
+            MUPLogger.Info("[FirebaseAuthService] Disconnecting Google account...");
+
+            _auth.SignOut();
+            GoogleSignIn.DefaultInstance.Disconnect();
+
+            MUPLogger.Info("[FirebaseAuthService] Google account disconnected.");
+        }
+
+        // ---------------------------------------------------------
+        // EMAIL / PASSWORD
+        // ---------------------------------------------------------
+
         public async Task SignUpEmailAsync(string email, string password)
         {
             EnsureReady();
             ValidateCredentials(email, password);
 
-            MUPLogger.Info($"[FirebaseAuthService] Signing up: {email}");
+            await RunExclusive(async () =>
+            {
+                MUPLogger.Info($"[FirebaseAuthService] Creating account: {email}");
 
-            try
-            {
-                var result = await _auth.CreateUserWithEmailAndPasswordAsync(email, password);
-                _user = result.User;
-                MUPLogger.Info($"[FirebaseAuthService] User created: {_user.UserId}");
-                
-                // Automatically send verification email
-                await SendEmailVerificationAsync();
-            }
-            catch (FirebaseException ex)
-            {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] SignUp failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
-            }
+                try
+                {
+                    var result = await WithTimeout(
+                        _auth.CreateUserWithEmailAndPasswordAsync(email, password),
+                        15000
+                    );
+
+                    _user = result.User;
+
+                    MUPLogger.Info("[FirebaseAuthService] Account created. Sending verification email...");
+                    await SendEmailVerificationAsync();
+                }
+                catch (FirebaseException ex)
+                {
+                    var msg = GetFirebaseErrorMessage(ex);
+                    MUPLogger.Error($"[FirebaseAuthService] SignUp failed: {msg}");
+                    throw new Exception(msg, ex);
+                }
+            });
         }
 
-        /// <summary>
-        /// Signs in an existing user with email and password.
-        /// </summary>
-        /// <param name="email">User's email address.</param>
-        /// <param name="password">User's password.</param>
-        /// <exception cref="FirebaseAuthException">Thrown when signin fails.</exception>
         public async Task SignInEmailAsync(string email, string password)
         {
             EnsureReady();
             ValidateCredentials(email, password);
 
-            MUPLogger.Info($"[FirebaseAuthService] Signing in: {email}");
+            await RunExclusive(async () =>
+            {
+                MUPLogger.Info($"[FirebaseAuthService] Signing in: {email}");
 
-            try
-            {
-                var result = await _auth.SignInWithEmailAndPasswordAsync(email, password);
-                _user = result.User;
-                MUPLogger.Info($"[FirebaseAuthService] User signed in: {_user.UserId}");
-            }
-            catch (FirebaseException ex)
-            {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] SignIn failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
-            }
+                try
+                {
+                    var result = await WithTimeout(
+                        _auth.SignInWithEmailAndPasswordAsync(email, password),
+                        15000
+                    );
+
+                    _user = result.User;
+
+                    MUPLogger.Info($"[FirebaseAuthService] SignIn success. User: {_user.UserId}");
+                }
+                catch (FirebaseException ex)
+                {
+                    var msg = GetFirebaseErrorMessage(ex);
+                    MUPLogger.Error($"[FirebaseAuthService] SignIn failed: {msg}");
+                    throw new Exception(msg, ex);
+                }
+            });
         }
 
-        /// <summary>
-        /// Sends a password reset email to the specified address.
-        /// </summary>
-        /// <param name="email">The email address to send the reset link to.</param>
         public async Task SendPasswordResetEmailAsync(string email)
         {
             EnsureReady();
-
-            if (string.IsNullOrWhiteSpace(email))
-                throw new ArgumentException("Email is required.", nameof(email));
 
             MUPLogger.Info($"[FirebaseAuthService] Sending password reset email to: {email}");
 
             try
             {
-                await _auth.SendPasswordResetEmailAsync(email);
-                MUPLogger.Info("[FirebaseAuthService] Password reset email sent successfully.");
+                await WithTimeout(_auth.SendPasswordResetEmailAsync(email), 15000);
+                MUPLogger.Info("[FirebaseAuthService] Password reset email sent.");
             }
             catch (FirebaseException ex)
             {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] Password reset failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
+                var msg = GetFirebaseErrorMessage(ex);
+                MUPLogger.Error($"[FirebaseAuthService] Reset failed: {msg}");
+                throw new Exception(msg, ex);
             }
         }
 
-        /// <summary>
-        /// Sends a verification email to the current user.
-        /// </summary>
-        /// <exception cref="InvalidOperationException">Thrown when no user is signed in.</exception>
         public async Task SendEmailVerificationAsync()
         {
             if (_user == null)
-                throw new InvalidOperationException("No user signed in. Cannot send verification email.");
+                throw new InvalidOperationException("No user signed in.");
 
-            MUPLogger.Info("[FirebaseAuthService] Sending email verification...");
+            MUPLogger.Info("[FirebaseAuthService] Sending verification email...");
 
             try
             {
-                await _user.SendEmailVerificationAsync();
-                MUPLogger.Info("[FirebaseAuthService] Verification email sent successfully.");
+                await WithTimeout(_user.SendEmailVerificationAsync(), 15000);
+                MUPLogger.Info("[FirebaseAuthService] Verification email sent.");
             }
             catch (FirebaseException ex)
             {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] Send verification failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
+                var msg = GetFirebaseErrorMessage(ex);
+                MUPLogger.Error($"[FirebaseAuthService] Verification failed: {msg}");
+                throw new Exception(msg, ex);
             }
         }
 
-        /// <summary>
-        /// Reloads the current user's data from Firebase.
-        /// Use this to refresh IsEmailVerified status.
-        /// </summary>
         public async Task ReloadUserAsync()
         {
             if (_user == null)
             {
-                MUPLogger.Warning("[FirebaseAuthService] No user signed in. Cannot reload.");
+                MUPLogger.Warning("[FirebaseAuthService] No user to reload.");
                 return;
             }
 
-            MUPLogger.Info("[FirebaseAuthService] Reloading user data...");
+            MUPLogger.Info("[FirebaseAuthService] Reloading user...");
 
             try
             {
-                await _user.ReloadAsync();
+                await WithTimeout(_user.ReloadAsync(), 15000);
                 _user = _auth.CurrentUser;
-                MUPLogger.Info("[FirebaseAuthService] User data reloaded successfully.");
+
+                MUPLogger.Info("[FirebaseAuthService] User reloaded.");
             }
             catch (FirebaseException ex)
             {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] Reload failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
+                var msg = GetFirebaseErrorMessage(ex);
+                MUPLogger.Error($"[FirebaseAuthService] Reload failed: {msg}");
+                throw new Exception(msg, ex);
             }
         }
 
-        /// <summary>
-        /// Updates the current user's display name.
-        /// </summary>
-        /// <param name="displayName">The new display name.</param>
         public async Task UpdateDisplayNameAsync(string displayName)
         {
             if (_user == null)
-                throw new InvalidOperationException("No user signed in. Cannot update profile.");
+                throw new InvalidOperationException("No user signed in.");
 
             MUPLogger.Info($"[FirebaseAuthService] Updating display name to: {displayName}");
 
             try
             {
                 var profile = new UserProfile { DisplayName = displayName };
-                await _user.UpdateUserProfileAsync(profile);
-                MUPLogger.Info("[FirebaseAuthService] Display name updated successfully.");
+                await WithTimeout(_user.UpdateUserProfileAsync(profile), 15000);
+
+                MUPLogger.Info("[FirebaseAuthService] Display name updated.");
             }
             catch (FirebaseException ex)
             {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] Update profile failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
+                var msg = GetFirebaseErrorMessage(ex);
+                MUPLogger.Error($"[FirebaseAuthService] Update failed: {msg}");
+                throw new Exception(msg, ex);
             }
         }
 
-        /// <summary>
-        /// Signs out the current user.
-        /// </summary>
         public void SignOut()
         {
             if (_auth == null) return;
 
             MUPLogger.Info("[FirebaseAuthService] Signing out...");
             _auth.SignOut();
+            MUPLogger.Info("[FirebaseAuthService] SignOut complete.");
         }
 
-        /// <summary>
-        /// Deletes the current user's account.
-        /// WARNING: This action is irreversible.
-        /// </summary>
         public async Task DeleteAccountAsync()
         {
             if (_user == null)
-                throw new InvalidOperationException("No user signed in. Cannot delete account.");
+                throw new InvalidOperationException("No user signed in.");
 
-            MUPLogger.Info("[FirebaseAuthService] Deleting user account...");
+            MUPLogger.Info("[FirebaseAuthService] Deleting account...");
 
             try
             {
-                await _user.DeleteAsync();
+                await WithTimeout(_user.DeleteAsync(), 15000);
                 _user = null;
-                MUPLogger.Info("[FirebaseAuthService] Account deleted successfully.");
+
+                MUPLogger.Info("[FirebaseAuthService] Account deleted.");
             }
             catch (FirebaseException ex)
             {
-                var friendlyMessage = GetFirebaseErrorMessage(ex);
-                MUPLogger.Error($"[FirebaseAuthService] Delete account failed: {friendlyMessage}");
-                throw new Exception(friendlyMessage, ex);
+                var msg = GetFirebaseErrorMessage(ex);
+                MUPLogger.Error($"[FirebaseAuthService] Delete failed: {msg}");
+                throw new Exception(msg, ex);
             }
+        }
+
+        // ---------------------------------------------------------
+        // INTERNALS
+        // ---------------------------------------------------------
+
+        private void OnAuthStateChanged(object sender, EventArgs e)
+        {
+            if (_disposed) return;
+
+            var previous = _user;
+            _user = _auth.CurrentUser;
+
+            bool changed = previous?.UserId != _user?.UserId;
+
+            if (changed)
+            {
+                MUPLogger.Info($"[FirebaseAuthService] Auth state changed: {(_user != null ? "Signed In" : "Signed Out")}");
+                AuthStateChanged?.Invoke(_user != null);
+            }
+        }
+
+        private void EnsureReady()
+        {
+            if (!IsInitialized || _auth == null)
+                throw new InvalidOperationException("FirebaseAuthService not initialized.");
+        }
+
+        private static void ValidateCredentials(string email, string password)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+                throw new ArgumentException("Email is required.");
+
+            if (string.IsNullOrWhiteSpace(password) || password.Length < 6)
+                throw new ArgumentException("Password must be at least 6 characters.");
+        }
+
+        private static string GetFirebaseErrorMessage(FirebaseException ex)
+        {
+            return ex.ErrorCode switch
+            {
+                (int)AuthError.EmailAlreadyInUse => "Email or password incorrect.",
+                (int)AuthError.InvalidEmail => "Invalid email address.",
+                (int)AuthError.WeakPassword => "Password is too weak.",
+                (int)AuthError.WrongPassword => "Email or password incorrect.",
+                (int)AuthError.UserNotFound => "Email or password incorrect.",
+                (int)AuthError.UserDisabled => "This account is disabled.",
+                (int)AuthError.TooManyRequests => "Too many attempts. Try later.",
+                _ => ex.Message
+            };
         }
 
         public void Dispose()
@@ -262,65 +430,9 @@ namespace MyUnityPackage.Requests
             _disposed = true;
 
             MUPLogger.Info("[FirebaseAuthService] Disposing...");
-            
+
             if (_auth != null)
                 _auth.StateChanged -= OnAuthStateChanged;
-        }
-
-        private void OnAuthStateChanged(object sender, EventArgs e)
-        {
-            if (_disposed) return;
-
-            var previousUser = _user;
-            _user = _auth.CurrentUser;
-            
-            // Only fire event if state actually changed
-            bool wasSignedIn = previousUser != null;
-            bool isSignedIn = _user != null;
-            
-            if (wasSignedIn != isSignedIn)
-            {
-                MUPLogger.Info($"[FirebaseAuthService] Auth state changed: {(isSignedIn ? "Signed In" : "Signed Out")}");
-                AuthStateChanged?.Invoke(isSignedIn);
-            }
-        }
-
-        private void EnsureReady()
-        {
-            if (!IsInitialized || _auth == null)
-                throw new InvalidOperationException("FirebaseAuthService not initialized. Call InitializeAsync() first.");
-        }
-
-        private static void ValidateCredentials(string email, string password)
-        {
-            if (string.IsNullOrWhiteSpace(email))
-                throw new ArgumentException("Email is required.", nameof(email));
-            
-            if (string.IsNullOrWhiteSpace(password))
-                throw new ArgumentException("Password is required.", nameof(password));
-            
-            if (password.Length < 6)
-                throw new ArgumentException("Password must be at least 6 characters.", nameof(password));
-        }
-
-        /// <summary>
-        /// Extracts a user-friendly error message from a Firebase exception.
-        /// </summary>
-        private static string GetFirebaseErrorMessage(FirebaseException ex)
-        {
-            // Firebase error codes: https://firebase.google.com/docs/auth/admin/errors
-            return ex.ErrorCode switch
-            {
-                (int)AuthError.EmailAlreadyInUse => "This email is already registered.",
-                (int)AuthError.InvalidEmail => "Invalid email address format.",
-                (int)AuthError.WeakPassword => "Password is too weak. Use at least 6 characters.",
-                (int)AuthError.WrongPassword => "Incorrect password.",
-                (int)AuthError.UserNotFound => "No account found with this email.",
-                (int)AuthError.UserDisabled => "This account has been disabled.",
-                (int)AuthError.TooManyRequests => "Too many attempts. Please try again later.",
-                (int)AuthError.NetworkRequestFailed => "Network error. Check your connection.",
-                _ => ex.Message
-            };
         }
     }
 }

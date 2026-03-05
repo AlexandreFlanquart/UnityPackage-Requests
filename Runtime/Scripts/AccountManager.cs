@@ -2,19 +2,14 @@ using System;
 using System.Threading.Tasks;
 using MyUnityPackage.Toolkit;
 using UnityEngine;
-using UnityEngine.Events;
 
 namespace MyUnityPackage.Requests
 {
-    /// <summary>
-    /// Manages user authentication and Firestore data operations.
-    /// Acts as a facade for FirebaseAuthService and FirestoreUserDataService.
-    /// </summary>
     public sealed class AccountManager : MonoBehaviour
     {
         public FirebaseAuthService AuthService { get; private set; }
         public FirestoreUserDataService FirestoreService { get; private set; }
-        
+
         public bool IsInitialized { get; private set; }
         public bool IsSignedIn => AuthService?.IsSignedIn ?? false;
         public string UserId => AuthService?.UserId;
@@ -25,34 +20,41 @@ namespace MyUnityPackage.Requests
         public event Action OnSignOut;
         public event Action OnInitialized;
 
-        private  void Awake()
+        // Nouveaux événements pour le UIBlocker
+        public event Action OnOperationStarted;
+        public event Action OnOperationEnded;
+
+        [Header("Google Sign-In")]
+        public string WebClientId;
+
+        private void Awake()
         {
             ServiceLocator.AddService<AccountManager>(gameObject);
         }
 
-        async void Start()
+        private async void Start()
         {
             AuthService = new FirebaseAuthService();
             FirestoreService = new FirestoreUserDataService();
+
             AuthService.AuthStateChanged += OnAuthStateChanged;
-           
+
             try
-            {     
-                // Yield to allow other Start() methods to subscribe to OnInitialized event
+            {
                 await Task.Yield();
 
                 await FirebaseBootstrap.InitializeAsync();
                 await FirestoreService.InitializeAsync();
+
+                AuthService.SetWebClientId(WebClientId);
                 await AuthService.InitializeAsync();
-                
+
                 IsInitialized = true;
-                MUPLogger.Info("[AccountManager] Initialized successfully.");         
-                
                 OnInitialized?.Invoke();
             }
             catch (Exception ex)
             {
-                MUPLogger.Error($"[AccountManager] Initialization failed: {ex.Message}");
+                MUPLogger.Error("[AccountManager] Initialization failed: " + ex.Message);
             }
         }
 
@@ -65,129 +67,74 @@ namespace MyUnityPackage.Requests
             }
         }
 
-        #region Authentication
-
-        private void OnAuthStateChanged(bool isSignedIn)
+        private void OnAuthStateChanged(bool signedIn)
         {
-            MUPLogger.Info($"[AccountManager] Auth state changed: {(isSignedIn ? "Signed In" : "Signed Out")}");
-            
-            if (isSignedIn)
+            if (signedIn)
                 OnSignIn?.Invoke();
             else
                 OnSignOut?.Invoke();
         }
 
-        /// <summary>
-        /// Signs in with email and password.
-        /// </summary>
+        // ---------------------------------------------------------
+        // AUTH WRAPPERS
+        // ---------------------------------------------------------
+
         public Task SignInEmailAsync(string email, string password)
-        {
-            return AuthService.SignInEmailAsync(email, password);
-        }
+            => AuthService.SignInEmailAsync(email, password);
 
-        /// <summary>
-        /// Creates a new account with email and password.
-        /// </summary>
         public Task SignUpEmailAsync(string email, string password)
-        {
-            return AuthService.SignUpEmailAsync(email, password);
-        }
+            => AuthService.SignUpEmailAsync(email, password);
 
-        /// <summary>
-        /// Sends a verification email to the current user.
-        /// </summary>
         public Task SendVerificationEmailAsync()
-        {
-            return AuthService.SendEmailVerificationAsync();
-        }
+            => AuthService.SendEmailVerificationAsync();
 
-        /// <summary>
-        /// Sends a password reset email.
-        /// </summary>
         public Task SendPasswordResetEmailAsync(string email)
-        {
-            return AuthService.SendPasswordResetEmailAsync(email);
-        }
+            => AuthService.SendPasswordResetEmailAsync(email);
 
-        /// <summary>
-        /// Reloads the current user's data (useful for checking email verification status).
-        /// </summary>
         public Task ReloadUserAsync()
-        {
-            return AuthService.ReloadUserAsync();
-        }
-    
-        /// <summary>
-        /// Signs out the current user.
-        /// </summary>
+            => AuthService.ReloadUserAsync();
+
         public void SignOut()
         {
             AuthService.SignOut();
         }
 
-        /// <summary>
-        /// Deletes the current user's account. This action is irreversible.
-        /// </summary>
         public Task DeleteAccountAsync()
+            => AuthService.DeleteAccountAsync();
+
+        // ---------------------------------------------------------
+        // GOOGLE AUTH WRAPPERS
+        // ---------------------------------------------------------
+
+        public Task SignInGoogleAsync()
+            => AuthService.SignInWithGoogleAsync();
+
+        public void SignOutGoogle()
         {
-            return AuthService.DeleteAccountAsync();
+            AuthService.SignOutGoogle();
         }
 
-        #endregion
-
-        #region Firestore Data
-
-        /// <summary>
-        /// Saves user data to Firestore under the current user's document.
-        /// </summary>
-        /// <typeparam name="T">Type implementing IFirestoreData with [FirestoreData] attribute.</typeparam>
-        /// <param name="userData">The data to save.</param>
-        public async Task SaveUserDataAsync<T>(T userData) where T : class, IFirestoreData
+        public void DisconnectGoogle()
         {
-            var uid = AuthService.UserId;
-            if (string.IsNullOrEmpty(uid))
-                throw new InvalidOperationException("User is not signed in. Cannot save user data.");
-            
-            MUPLogger.Info("[AccountManager] Saving user data...");
-            await FirestoreService.SaveDataAsync("Users", uid, userData);
-            MUPLogger.Info("[AccountManager] User data saved successfully.");
-        }
-        
-        /// <summary>
-        /// Loads user data from Firestore for the current user.
-        /// </summary>
-        /// <typeparam name="T">Type implementing IFirestoreData with [FirestoreData] attribute.</typeparam>
-        /// <returns>The loaded data, or null if document doesn't exist.</returns>
-        public async Task<T> LoadUserDataAsync<T>() where T : class, IFirestoreData
-        {
-            var uid = AuthService.UserId;
-            if (string.IsNullOrEmpty(uid))
-                throw new InvalidOperationException("User is not signed in. Cannot load user data.");
-            
-            MUPLogger.Info("[AccountManager] Loading user data...");
-            T userData = await FirestoreService.LoadDataAsync<T>("Users", uid);
-            MUPLogger.Info("[AccountManager] User data loaded successfully.");
-            return userData;
+            AuthService.DisconnectGoogle();
         }
 
-        /// <summary>
-        /// Saves data to a custom collection/document path.
-        /// </summary>
-        public Task SaveDataAsync<T>(string collection, string documentId, T data) where T : class, IFirestoreData
-        {
-            MUPLogger.Info($"[AccountManager] Saving data to collection: {collection}, documentId: {documentId}");
-            return FirestoreService.SaveDataAsync(collection, documentId, data);
-        }
+        // ---------------------------------------------------------
+        // FIRESTORE WRAPPERS
+        // ---------------------------------------------------------
 
-        /// <summary>
-        /// Loads data from a custom collection/document path.
-        /// </summary>
-        public Task<T> LoadDataAsync<T>(string collection, string documentId) where T : class, IFirestoreData
-        {
-            MUPLogger.Info($"[AccountManager] Loading data from collection: {collection}, documentId: {documentId}");
-            return FirestoreService.LoadDataAsync<T>(collection, documentId);
-        }
+        public Task SaveUserDataAsync<T>(T data) where T : class, IFirestoreData
+            => FirestoreService.SaveDataAsync("Users", UserId, data);
 
-        #endregion
+        public Task<T> LoadUserDataAsync<T>() where T : class, IFirestoreData
+            => FirestoreService.LoadDataAsync<T>("Users", UserId);
+
+        public Task SaveDataAsync<T>(string collection, string documentId, T data)
+            where T : class, IFirestoreData
+            => FirestoreService.SaveDataAsync(collection, documentId, data);
+
+        public Task<T> LoadDataAsync<T>(string collection, string documentId)
+            where T : class, IFirestoreData
+            => FirestoreService.LoadDataAsync<T>(collection, documentId);
     }
 }

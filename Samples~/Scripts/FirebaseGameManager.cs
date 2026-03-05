@@ -1,5 +1,4 @@
 using MyUnityPackage.Toolkit;
-using MyUnityPackage.Requests;
 using UnityEngine;
 using System.Threading.Tasks;
 
@@ -17,7 +16,7 @@ namespace MyUnityPackage.Requests.Samples
             _uiConnexion = ServiceLocator.GetService<UI_Connexion>();
             _uiGameData = ServiceLocator.GetService<UI_GameData>();
             _user = ServiceLocator.GetService<User>();
-           
+
             _account = ServiceLocator.GetService<AccountManager>();
             _account.OnSignOut += OnUserSignedOut;
             _account.OnInitialized += OnAccountInitialized;
@@ -34,12 +33,13 @@ namespace MyUnityPackage.Requests.Samples
 
         private async void OnAccountInitialized()
         {
-            MUPLogger.Info("[FirebaseGameManager] Account system initialized. Checking user status.");
-            _uiConnexion.HideLoadingScreen();
-            // Si l'utilisateur est déjà connecté (et email vérifié) au démarrage, on affiche directement les données de jeu
+            MUPLogger.Info("[FirebaseGameManager] Account system initialized.");
+
+            ServiceLocator.GetService<UI_AlwaysVisible>().HideLoading();
+
             if (_account.IsSignedIn && _account.IsEmailVerified)
             {
-                MUPLogger.Info("[FirebaseGameManager] User already signed in on startup. Showing game data.");
+                MUPLogger.Info("[FirebaseGameManager] User already signed in. Loading game data...");
                 await ShowGameDataAsync();
             }
         }
@@ -47,34 +47,36 @@ namespace MyUnityPackage.Requests.Samples
         private void OnUserSignedOut()
         {
             MUPLogger.Info("[FirebaseGameManager] User signed out. Showing login panel.");
-            _uiConnexion.Show();
             _uiGameData.Hide();
+            _uiConnexion.Show();
         }
 
         public async Task ShowGameDataAsync()
         {
             MUPLogger.Info("[FirebaseGameManager] Showing game data panel.");
+            await LoadUserDataAsync();
             _uiConnexion.Hide();
             _uiGameData.Show();
-            await LoadUserDataAsync();      
         }
 
         public async Task LoadUserDataAsync()
         {
-            MUPLogger.Info("[FirebaseGameManager] Loading user data.");
+            MUPLogger.Info("[FirebaseGameManager] Loading user data...");
+
             try
             {
                 UserData userData = await _account.LoadUserDataAsync<UserData>();
-                
+
                 if (userData != null)
                 {
                     _user.LoadData(userData);
-                    MUPLogger.Info($"[FirebaseGameManager] User data loaded: {userData.Description}, Age: {userData.Age}, Role: {userData.Role}");
                     _uiGameData.LoadData(_user);
+
+                    MUPLogger.Info($"[FirebaseGameManager] User data loaded: {userData.Description}, Age: {userData.Age}, Role: {userData.Role}");
                 }
                 else
                 {
-                    MUPLogger.Info("[FirebaseGameManager] No existing user data found. Using defaults.");
+                    MUPLogger.Info("[FirebaseGameManager] No user data found. Using defaults.");
                 }
             }
             catch (System.Exception ex)

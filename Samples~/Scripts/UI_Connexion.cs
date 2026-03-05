@@ -10,7 +10,6 @@ namespace MyUnityPackage.Requests.Samples
     public sealed class UI_Connexion : UI_Base
     {
         [Header("Panels")]
-        [SerializeField] private GameObject loadingScreen;
         [SerializeField] private GameObject signInPanel;
         [SerializeField] private GameObject signUpPanel;
         [SerializeField] private GameObject verifyEmailPanel;
@@ -22,6 +21,7 @@ namespace MyUnityPackage.Requests.Samples
         [SerializeField] private Button signInButton;
         [SerializeField] private Button forgotPasswordButton;
         [SerializeField] private Button goToSignUpButton;
+        [SerializeField] private Button googleSignInButton;
         [SerializeField] private TextMeshProUGUI feedbackSignInText;
 
         [Header("Sign-up panel")]
@@ -30,6 +30,7 @@ namespace MyUnityPackage.Requests.Samples
         [SerializeField] private TMP_InputField signUpConfirmPasswordInputField;
         [SerializeField] private Button signUpButton;
         [SerializeField] private Button backToLoginFromSignUpButton;
+        [SerializeField] private Button googleSignUpButton;
         [SerializeField] private TextMeshProUGUI feedbackSignUpText;
 
         [Header("Verify email panel")]
@@ -43,368 +44,323 @@ namespace MyUnityPackage.Requests.Samples
         [SerializeField] private Button backToLoginButton;
         [SerializeField] private TextMeshProUGUI feedbackForgotPasswordText;
 
-
         private AccountManager _account;
         private FirebaseGameManager _gameManager;
         private User _user;
+        private bool _isUiLocked;
+        private UI_AlwaysVisible uiAlwaysVisible;
 
-        private void Awake()
-        {
-            ServiceLocator.AddService<UI_Connexion>(gameObject);
-        }
+        private enum UIPanel { SignIn, SignUp, ForgotPassword, VerifyEmail }
 
         protected override void Start()
         {
             base.Start();
+
             _account = ServiceLocator.GetService<AccountManager>();
             _gameManager = ServiceLocator.GetService<FirebaseGameManager>();
             _user = ServiceLocator.GetService<User>();
+            uiAlwaysVisible = ServiceLocator.GetService<UI_AlwaysVisible>();
 
-            if (_account == null)
-            {
-                MUPLogger.Error("[UI_Connexion] AccountManager not found. This component requires AccountManager.");
-                return;
-            }
+            if (uiAlwaysVisible == null)
+                MUPLogger.Warning("[UI_Connexion] UI_AlwaysVsible not found. Loading screen will not be shown.");
 
-            // Sign in panel
-            if (signInButton) signInButton.onClick.AddListener(() => _ = OnClickSignInButtonAsync());
-            if (forgotPasswordButton) forgotPasswordButton.onClick.AddListener(OnClickForgotPasswordButton);
-            if (goToSignUpButton) goToSignUpButton.onClick.AddListener(ShowSignUpPanel);
+            signInButton.onClick.AddListener(() => _ = OnClickSignInAsync());
+            goToSignUpButton.onClick.AddListener(() => ShowPanel(UIPanel.SignUp));
+            forgotPasswordButton.onClick.AddListener(() => ShowPanel(UIPanel.ForgotPassword));
+            googleSignInButton.onClick.AddListener(() => _ = OnClickGoogleSignInAsync());
+            googleSignUpButton.onClick.AddListener(() => _ = OnClickGoogleSignInAsync());
+            signUpButton.onClick.AddListener(() => _ = OnClickSignUpAsync());
+            backToLoginFromSignUpButton.onClick.AddListener(() => ShowPanel(UIPanel.SignIn));
 
-            // Sign-up panel
-            if (signUpButton) signUpButton.onClick.AddListener(() => _ = OnClickSignUpButtonAsync());
-            if (backToLoginFromSignUpButton) backToLoginFromSignUpButton.onClick.AddListener(ShowSignInPanel);
+            resendVerificationEmailButton.onClick.AddListener(() => _ = OnClickResendVerificationAsync());
+            verifyNextButton.onClick.AddListener(() => _ = OnClickVerifyNextAsync());
 
-            // Verify email panel
-            if (resendVerificationEmailButton) resendVerificationEmailButton.onClick.AddListener(() => _ = OnClickResendVerificationAsync());
-            if (verifyNextButton && _gameManager != null) verifyNextButton.onClick.AddListener(() => _ = CheckEmailVerifiedAsync());
-
-            // Forgot password panel
-            if (sendResetEmailButton) sendResetEmailButton.onClick.AddListener(() => _ = OnClickSendResetEmailAsync());
-            if (backToLoginButton) backToLoginButton.onClick.AddListener(OnClickBackToLoginFromForgot);
+            sendResetEmailButton.onClick.AddListener(() => _ = OnClickSendResetEmailAsync());
+            backToLoginButton.onClick.AddListener(() => ShowPanel(UIPanel.SignIn));
         }
-
 
         public override void Show()
         {
             base.Show();
-            if (signInPanel) signInPanel.SetActive(true);
-            if (signUpPanel) signUpPanel.SetActive(false);
-            if (verifyEmailPanel) verifyEmailPanel.SetActive(false);
-            if (forgotPasswordPanel) forgotPasswordPanel.SetActive(false);
-            signInButton.interactable = true;
-            signUpButton.interactable = true;
+            ShowPanel(UIPanel.SignIn);
             HideAllFeedbacks();
         }
 
-        #region UI Helpers
-        public void HideLoadingScreen(){
-            if (loadingScreen != null) loadingScreen.SetActive(false);
+        // ---------------------------------------------------------
+        // PANEL MANAGEMENT
+        // ---------------------------------------------------------
+
+        private void ShowPanel(UIPanel panel)
+        {
+            MUPLogger.Info($"[UI_Connexion] Showing panel: {panel}");
+            signInPanel.SetActive(panel == UIPanel.SignIn);
+            signUpPanel.SetActive(panel == UIPanel.SignUp);
+            forgotPasswordPanel.SetActive(panel == UIPanel.ForgotPassword);
+            verifyEmailPanel.SetActive(panel == UIPanel.VerifyEmail);
         }
 
-        private void ShowFeedbackLogin(string message, bool isError = true)
+        private async Task RunWithUiLockAsync(Func<Task> action)
         {
-            MUPLogger.Info($"[UI_Connexion] Showing feedback: {message}");
-            if (!feedbackSignInText) return;
-            
-            feedbackSignInText.gameObject.SetActive(true);
-            feedbackSignInText.text = message;
-            feedbackSignInText.color = isError ? Color.red : Color.green;
-        }
-
-        private void HideFeedbackLogin()
-        {
-            MUPLogger.Info("[UI_Connexion] Hiding feedback login.");
-            if (feedbackSignInText) feedbackSignInText.gameObject.SetActive(false);
-        }
-
-        private void ShowFeedbackSignUp(string message, bool isError = true)
-        {
-            MUPLogger.Info($"[UI_Connexion] Showing feedback: {message}");
-            if (!feedbackSignUpText) return;
-            
-            feedbackSignUpText.gameObject.SetActive(true);
-            feedbackSignUpText.text = message;
-            feedbackSignUpText.color = isError ? Color.red : Color.green;
-        }
-
-        private void HideFeedbackSignUp()
-        {
-            MUPLogger.Info("[UI_Connexion] Hiding feedback sign up.");
-            if (feedbackSignUpText) feedbackSignUpText.gameObject.SetActive(false);
-        }
-
-        private void ShowFeedbackVerify(string message, bool isError = true)
-        {
-            MUPLogger.Info($"[UI_Connexion] Showing feedback: {message}");
-            if (!feedbackVerifyText) return;
-            feedbackVerifyText.gameObject.SetActive(true);
-            feedbackVerifyText.text = message;
-            feedbackVerifyText.color = isError ? Color.red : Color.green;
-        }
-
-        private void HideFeedbackVerify()
-        {
-            MUPLogger.Info("[UI_Connexion] Hiding feedback verify.");
-            if (feedbackVerifyText) feedbackVerifyText.gameObject.SetActive(false);
-        }
-
-        private void HideFeedbackForgotPassword()
-        {
-            MUPLogger.Info("[UI_Connexion] Hiding feedback forgot password.");
-            if (feedbackForgotPasswordText) feedbackForgotPasswordText.gameObject.SetActive(false);
-        }
-
-        /// <summary>Cache tous les messages de feedback (nouvelle session ou changement de contexte).</summary>
-        private void HideAllFeedbacks()
-        {
-            HideFeedbackLogin();
-            HideFeedbackSignUp();
-            HideFeedbackVerify();
-            HideFeedbackForgotPassword();
-        }
-
-        #endregion
-
-        #region Auth Actions
-
-        private async Task OnClickSignInButtonAsync()
-        {
-            MUPLogger.Info("[UI_Connexion] Sign in button clicked.");
-            HideFeedbackLogin();
-            signInButton.interactable = false;
-
-            var email = signInEmailInputField ? signInEmailInputField.text.Trim() : "";
-            var password = signInPasswordInputField ? signInPasswordInputField.text : "";
-
-            if (!ValidateCredentials(email, password, null, forLogin: true))
+            if (_isUiLocked)
             {
-                signInButton.interactable = true;
+                MUPLogger.Warning("[UI_Connexion] Click ignored: UI is locked by an ongoing operation.");
                 return;
             }
 
-            try
-            {
-                await _account.SignInEmailAsync(email, password);
-                _ = CheckEmailVerifiedAsync();
-            }
-            catch (Exception ex)
-            {
-                ShowFeedbackLogin(ex.Message);
-                MUPLogger.Error($"[UI_Connexion] Sign in failed: {ex.Message}");
-                signInButton.interactable = true;
-            }
-        }
-
-        private async Task OnClickSignUpButtonAsync()
-        {
-            MUPLogger.Info("[UI_Connexion] Sign-up button clicked.");
-            HideFeedbackSignUp();
-            signUpButton.interactable = false;
-
-            var email = signUpEmailInputField ? signUpEmailInputField.text.Trim() : "";
-            var password = signUpPasswordInputField ? signUpPasswordInputField.text : "";
-            var confirmPassword = signUpConfirmPasswordInputField ? signUpConfirmPasswordInputField.text : "";
-
-            if (!ValidateCredentials(email, password, confirmPassword, forLogin: false))
-            {
-                signUpButton.interactable = true;
-                return;
-            }
+            _isUiLocked = true;
+            uiAlwaysVisible?.ShowLoading();
 
             try
             {
-                await _account.SignUpEmailAsync(email, password);
-
-                // Save initial user data after signup
-                await _account.SaveUserDataAsync(_user.userData);
-
-                ShowVerifyEmailPanel(true);
-                ShowFeedbackVerify("Compte créé! Veuillez vérifier votre email.", false);
-            }
-            catch (Exception ex)
-            {
-                ShowFeedbackSignUp(ex.Message);
-                MUPLogger.Error($"[UI_Connexion] Sign up failed: {ex.Message}");
-                signUpButton.interactable = true;
-            }
-        }
-
-        private async Task OnClickResendVerificationAsync()
-        {
-            MUPLogger.Info("[UI_Connexion] Resend verification email button clicked.");
-            HideFeedbackVerify();
-            resendVerificationEmailButton.interactable = false;
-            try
-            {
-                await _account.SendVerificationEmailAsync();
-                ShowFeedbackVerify("Email de vérification envoyé! Veuillez vérifier votre email.", false);
-            }
-            catch (Exception ex)
-            {
-                ShowFeedbackVerify(ex.Message);
-                MUPLogger.Error($"[UI_Connexion] Resend verification email failed: {ex.Message}");
+                await action();
             }
             finally
             {
-                resendVerificationEmailButton.interactable = true;
+                uiAlwaysVisible?.HideLoading();
+                _isUiLocked = false;
             }
         }
 
-        private void OnClickForgotPasswordButton()
+        // ---------------------------------------------------------
+        // FEEDBACK
+        // ---------------------------------------------------------
+
+        private void HideAllFeedbacks()
         {
-            MUPLogger.Info("[UI_Connexion] Forgot password button clicked.");
-            HideFeedbackForgotPassword();
-            if (forgotPasswordPanel) forgotPasswordPanel.SetActive(true);
+            MUPLogger.Info("[UI_Connexion] Hiding all feedback messages.");
+            feedbackSignInText?.gameObject.SetActive(false);
+            feedbackSignUpText?.gameObject.SetActive(false);
+            feedbackForgotPasswordText?.gameObject.SetActive(false);
+            feedbackVerifyText?.gameObject.SetActive(false);
         }
 
-        private void OnClickBackToLoginFromForgot()
+        private void ShowFeedback(TextMeshProUGUI target, string message, bool isError = true)
         {
-            MUPLogger.Info("[UI_Connexion] Back to login from forgot password button clicked.");
-            if (forgotPasswordPanel) forgotPasswordPanel.SetActive(false);
-            HideFeedbackForgotPassword();
-            if (signInPanel) signInPanel.SetActive(true);
+            MUPLogger.Info($"[UI_Connexion] Showing feedback: {(isError ? "Error" : "Success")} - {message}");
+            if (target == null) return;
+
+            target.gameObject.SetActive(true);
+            target.text = message;
+            target.color = isError ? Color.red : Color.green;
         }
 
-        private bool ValidateCredentials(string email, string password, string confirmPassword = null, bool forLogin = false)
-        {
-            MUPLogger.Info("[UI_Connexion] Validating credentials.");
-            void Feedback(string message, bool isError = true)
-            {
-                if (forLogin)
-                    ShowFeedbackLogin(message, isError);
-                else
-                    ShowFeedbackSignUp(message, isError);
-            }
+        // ---------------------------------------------------------
+        // VALIDATION
+        // ---------------------------------------------------------
 
+        private bool ValidateEmail(string email, out string error)
+        {
             if (string.IsNullOrWhiteSpace(email))
             {
-                Feedback("Veuillez entrer votre email.");
+                error = "Veuillez entrer votre email.";
                 return false;
             }
 
             if (!email.Contains("@") || !email.Contains("."))
             {
-                Feedback("Veuillez entrer un email valide.");
+                error = "Veuillez entrer un email valide.";
                 return false;
             }
 
+            error = null;
+            return true;
+        }
+
+        private bool ValidatePassword(string password, out string error)
+        {
             if (string.IsNullOrWhiteSpace(password))
             {
-                Feedback("Veuillez entrer votre mot de passe.");
+                error = "Veuillez entrer votre mot de passe.";
                 return false;
             }
 
             if (password.Length < 6)
             {
-                Feedback("Le mot de passe doit contenir au moins 6 caractères.");
+                error = "Le mot de passe doit contenir au moins 6 caractères.";
                 return false;
             }
 
-            if (confirmPassword != null && password != confirmPassword)
-            {
-                Feedback("Les mots de passe ne correspondent pas.");
-                return false;
-            }
-
+            error = null;
             return true;
         }
 
+        private bool ValidatePasswordMatch(string p1, string p2, out string error)
+        {
+            if (p1 != p2)
+            {
+                error = "Les mots de passe ne correspondent pas.";
+                return false;
+            }
+
+            error = null;
+            return true;
+        }
+
+        /// ---------------------------------------------------------
+        /// GOOGLE SIGN-IN
+        /// ----------------------------------------------------------
+        
+        private async Task OnClickGoogleSignInAsync()
+        {
+            await RunWithUiLockAsync(async () =>
+            {
+                HideAllFeedbacks();
+
+                try
+                {
+                    await _account.SignInGoogleAsync();
+                    await CheckEmailVerifiedAsync();
+                }
+                catch (Exception ex)
+                {
+                    ShowFeedback(feedbackSignInText, ex.Message);
+                }
+            });
+        }
+
+        // ---------------------------------------------------------
+        // SIGN IN
+        // ---------------------------------------------------------
+
+        private async Task OnClickSignInAsync()
+        {
+            await RunWithUiLockAsync(async () =>
+            {
+                HideAllFeedbacks();
+
+                var email = signInEmailInputField.text.Trim();
+                var password = signInPasswordInputField.text;
+
+                if (!ValidateEmail(email, out var error) ||
+                    !ValidatePassword(password, out error))
+                {
+                    ShowFeedback(feedbackSignInText, error);
+                    return;
+                }
+
+                try
+                {
+                    await _account.SignInEmailAsync(email, password);
+                    await CheckEmailVerifiedAsync();
+                }
+                catch (Exception ex)
+                {
+                    ShowFeedback(feedbackSignInText, ex.Message);
+                }
+            });
+        }
+
+        // ---------------------------------------------------------
+        // SIGN UP
+        // ---------------------------------------------------------
+
+        private async Task OnClickSignUpAsync()
+        {
+            await RunWithUiLockAsync(async () =>
+            {
+                HideAllFeedbacks();
+
+                var email = signUpEmailInputField.text.Trim();
+                var password = signUpPasswordInputField.text;
+                var confirm = signUpConfirmPasswordInputField.text;
+
+                if (!ValidateEmail(email, out var error) ||
+                    !ValidatePassword(password, out error) ||
+                    !ValidatePasswordMatch(password, confirm, out error))
+                {
+                    ShowFeedback(feedbackSignUpText, error);
+                    return;
+                }
+
+                try
+                {
+                    await _account.SignUpEmailAsync(email, password);
+                    await _account.SaveUserDataAsync(_user.userData);
+
+                    ShowPanel(UIPanel.VerifyEmail);
+                    ShowFeedback(feedbackVerifyText, "Compte créé ! Vérifiez votre email.", false);
+                }
+                catch (Exception ex)
+                {
+                    ShowFeedback(feedbackSignUpText, ex.Message);
+                }
+            });
+        }
+
+        // ---------------------------------------------------------
+        // FORGOT PASSWORD
+        // ---------------------------------------------------------
+
         private async Task OnClickSendResetEmailAsync()
         {
-            MUPLogger.Info("[UI_Connexion] Send reset email button clicked.");
-            HideFeedbackForgotPassword();
-            sendResetEmailButton.interactable = false;
+            await RunWithUiLockAsync(async () =>
+            {
+                HideAllFeedbacks();
 
-            var email = forgotPasswordEmailInputField ? forgotPasswordEmailInputField.text.Trim() : "";
+                var email = forgotPasswordEmailInputField.text.Trim();
 
-            if (string.IsNullOrWhiteSpace(email))
-            {
-                ShowFeedbackForgotPassword("Veuillez entrer votre email.", true);
-                sendResetEmailButton.interactable = true;
-                return;
-            }
+                if (!ValidateEmail(email, out var error))
+                {
+                    ShowFeedback(feedbackForgotPasswordText, error);
+                    return;
+                }
 
-            try
-            {
-                await _account.SendPasswordResetEmailAsync(email);
-                ShowFeedbackForgotPassword("Email de réinitialisation envoyé! Veuillez vérifier votre boîte de réception.", false);
-            }
-            catch (Exception ex)
-            {
-                ShowFeedbackForgotPassword(ex.Message);
-                MUPLogger.Error($"[UI_Connexion] Send reset email failed: {ex.Message}");
-            }
-            finally
-            {
-                sendResetEmailButton.interactable = true;
-            }
+                try
+                {
+                    await _account.SendPasswordResetEmailAsync(email);
+                    ShowFeedback(feedbackForgotPasswordText, "Email envoyé ! Vérifiez votre boîte de réception.", false);
+                }
+                catch (Exception ex)
+                {
+                    ShowFeedback(feedbackForgotPasswordText, ex.Message);
+                }
+            });
         }
 
-        private void ShowFeedbackForgotPassword(string message, bool isError = true)
-        {
-            MUPLogger.Info($"[UI_Connexion] Showing feedback: {message}");
-            if (!feedbackForgotPasswordText) return;
-            
-            feedbackForgotPasswordText.gameObject.SetActive(true);
-            feedbackForgotPasswordText.text = message;
-            feedbackForgotPasswordText.color = isError ? Color.red : Color.green;
-        }
+        // ---------------------------------------------------------
+        // VERIFY EMAIL
+        // ---------------------------------------------------------
 
-        public void ShowVerifyEmailPanel(bool show)
+        private async Task OnClickResendVerificationAsync()
         {
-            MUPLogger.Info($"[UI_Connexion] Showing verify email panel: {show}");
-            if (show)
+            await RunWithUiLockAsync(async () =>
             {
-                if (signInPanel) signInPanel.SetActive(false);
-                if (signUpPanel) signUpPanel.SetActive(false);
-                if (forgotPasswordPanel) forgotPasswordPanel.SetActive(false);
-                if (verifyEmailPanel) verifyEmailPanel.SetActive(true);
-                // Ne pas cacher le feedback verify : il affiche souvent "Account created!..." ou message de resend
-            }
-            else
-            {
-                if (verifyEmailPanel) verifyEmailPanel.SetActive(false);
-                HideFeedbackVerify();
-            }
+                HideAllFeedbacks();
+
+                try
+                {
+                    await _account.SendVerificationEmailAsync();
+                    ShowFeedback(feedbackVerifyText, "Email envoyé !", false);
+                }
+                catch (Exception ex)
+                {
+                    ShowFeedback(feedbackVerifyText, ex.Message);
+                }
+            });
         }
 
-        /// <summary>Affiche le panel de connexion (login).</summary>
-        public void ShowSignInPanel()
+        private async Task OnClickVerifyNextAsync()
         {
-            MUPLogger.Info("[UI_Connexion] Showing signIn panel.");
-            if (signInPanel) signInPanel.SetActive(true);
-            if (signUpPanel) signUpPanel.SetActive(false);
-            HideFeedbackLogin();
-            HideFeedbackSignUp();
-        }
-
-        /// <summary>Affiche le panel de création de compte (sign-up).</summary>
-        public void ShowSignUpPanel()
-        {
-            MUPLogger.Info("[UI_Connexion] Showing sign up panel.");
-            if (signInPanel) signInPanel.SetActive(false);
-            if (signUpPanel) signUpPanel.SetActive(true);
-            HideFeedbackLogin();
-            HideFeedbackSignUp();
+            await RunWithUiLockAsync(CheckEmailVerifiedAsync);
         }
 
         private async Task CheckEmailVerifiedAsync()
         {
-            await _account.ReloadUserAsync();
-            
-            MUPLogger.Info($"[UI_Connexion] Email verified: {_account.IsEmailVerified}");
-            
-            if (!_account.IsEmailVerified)
+            if (_isUiLocked == false)
             {
-                ShowVerifyEmailPanel(true);
+                MUPLogger.Warning("[UI_Connexion] CheckEmailVerifiedAsync called outside UI lock.");
             }
-            else
+
+            await _account.ReloadUserAsync();
+
+            if (_account.IsEmailVerified)
             {
                 await _gameManager.ShowGameDataAsync();
             }
+            else
+            {
+                ShowPanel(UIPanel.VerifyEmail);
+            }
         }
-
-        #endregion
     }
 }

@@ -48,7 +48,7 @@ namespace MyUnityPackage.Requests.Samples
             if (signOutButton) signOutButton.onClick.AddListener(() => _account.SignOut());
             if (loadProfileButton) loadProfileButton.onClick.AddListener(() => _ = _gameManager.LoadUserDataAsync());
             if (saveProfileButton) saveProfileButton.onClick.AddListener(() => _ = _account.SaveUserDataAsync(_user.userData));
-            if(deleteAccountButton) deleteAccountButton.onClick.AddListener(() => _account.DeleteAccountAsync());
+            if(deleteAccountButton) deleteAccountButton.onClick.AddListener(() => _ = OnClickDeleteAccountAsync());
 
             // Field change listeners
             if (ageInputField) ageInputField.onEndEdit.AddListener(OnAgeChanged);
@@ -99,6 +99,18 @@ namespace MyUnityPackage.Requests.Samples
             
             _user.userData.Description = value;
             MUPLogger.Info($"[UI_GameData] Description changed to: {_user.userData.Description}");
+        }
+
+        private async System.Threading.Tasks.Task OnClickDeleteAccountAsync()
+        {
+            try
+            {
+                await _account.DeleteAccountAsync();
+            }
+            catch (System.Exception ex)
+            {
+                MUPLogger.Error($"[UI_GameData] Delete account failed: {ex.Message}");
+            }
         }
 
     }
