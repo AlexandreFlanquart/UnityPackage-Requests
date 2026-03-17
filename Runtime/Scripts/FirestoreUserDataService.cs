@@ -94,5 +94,13 @@ namespace MyUnityPackage.Requests
             if (!IsInitialized || _db == null)
                 throw new InvalidOperationException("FirestoreUserDataService not initialized. Call InitializeAsync() first.");
         }
+
+        public string GetIDByCollection(string collection)
+        {
+            if (string.IsNullOrWhiteSpace(collection))
+                throw new ArgumentException("collection is null/empty.", nameof(collection));
+
+            return _db.Collection(collection).Document().Id;
+        }
     }
 }
