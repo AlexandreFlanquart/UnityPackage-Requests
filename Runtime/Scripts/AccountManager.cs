@@ -144,13 +144,14 @@ namespace MyUnityPackage.Requests
 
         public async Task<bool> CheckAdminState()
         {
-            var user = AuthService.GetCurrentUser();
+           /* var user = AuthService.GetCurrentUser();
 
             if (user == null)
                 return false;
 
             // Force refresh du token pour récupérer les claims à jour
-            string idToken = await user.GetIdTokenAsync(true);
+            var idTokenResult = await user.GetIdTokenResultAsync(true);
+            string idToken = idTokenResult.Token;
 
             // Un JWT = header.payload.signature
             string[] parts = idToken.Split('.');
@@ -177,7 +178,7 @@ namespace MyUnityPackage.Requests
             {
                 return Convert.ToBoolean(dict["admin"]);
             }
-
+*/
             return false;
         }
     }
