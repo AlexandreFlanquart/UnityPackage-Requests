@@ -147,7 +147,7 @@ namespace MyUnityPackage.Requests
             var user = AuthService.GetCurrentUser();
             if (user != null)
             {
-                var token = await user.GetIdTokenAsync();
+                var token = await user.GetIdTokenResultAsync(true);
                 return token;
             }
             return null;
