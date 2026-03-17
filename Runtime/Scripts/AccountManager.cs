@@ -142,15 +142,43 @@ namespace MyUnityPackage.Requests
             return FirestoreService.GetIDByCollection(collection);
         }
 
-        public async Task<string> GetIDTokenAsync()
+        public async Task<bool> CheckAdminState()
         {
             var user = AuthService.GetCurrentUser();
-            if (user != null)
+
+            if (user == null)
+                return false;
+
+            // Force refresh du token pour récupérer les claims à jour
+            string idToken = await user.GetIdTokenAsync(true);
+
+            // Un JWT = header.payload.signature
+            string[] parts = idToken.Split('.');
+            if (parts.Length < 2)
+                return false;
+
+            string payload = parts[1];
+
+            // Correction du padding Base64
+            payload = payload.Replace('-', '+').Replace('_', '/');
+            switch (payload.Length % 4)
             {
-                var token = await user.GetIdTokenResultAsync(true);
-                return token;
+                case 2: payload += "=="; break;
+                case 3: payload += "="; break;
             }
-            return null;
+
+            // Décodage JSON
+            string json = Encoding.UTF8.GetString(Convert.FromBase64String(payload));
+
+            // Parse en dictionnaire
+            var dict = MiniJson.Deserialize(json) as Dictionary<string, object>;
+
+            if (dict != null && dict.ContainsKey("admin"))
+            {
+                return Convert.ToBoolean(dict["admin"]);
+            }
+
+            return false;
         }
     }
 }
