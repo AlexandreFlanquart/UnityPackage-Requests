@@ -141,5 +141,16 @@ namespace MyUnityPackage.Requests
         {
             return FirestoreService.GetIDByCollection(collection);
         }
+
+        public async Task<string> GetIDTokenAsync()
+        {
+            var user = AuthService.GetCurrentUser();
+            if (user != null)
+            {
+                var token = await user.GetIdTokenAsync();
+                return token;
+            }
+            return null;
+        }
     }
 }

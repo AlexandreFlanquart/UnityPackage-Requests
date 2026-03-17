@@ -434,5 +434,18 @@ namespace MyUnityPackage.Requests
             if (_auth != null)
                 _auth.StateChanged -= OnAuthStateChanged;
         }
+
+        public FirebaseUser GetCurrentUser()
+        {
+            if (_user != null)
+            {
+                return _auth.CurrentUser;
+            }
+            else
+            {
+                MUPLogger.Info("[FirebaseAuthService] No user currently signed in.");
+                return null;
+            }
+        }
     }
 }
