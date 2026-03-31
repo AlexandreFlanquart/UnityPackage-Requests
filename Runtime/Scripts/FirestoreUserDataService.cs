@@ -89,6 +89,30 @@ namespace MyUnityPackage.Requests
         }
 
 
+        /// <summary>
+        /// Fetches all documents from a collection and converts them to the specified type.
+        /// </summary>
+        /// <typeparam name="T">The type to deserialize each document into. Must have [FirestoreData] attribute.</typeparam>
+        /// <param name="collection">The collection name.</param>
+        /// <returns>A list of all documents in the collection.</returns>
+        public async Task<List<T>> GetCollectionAsync<T>(string collection) where T : class, IFirestoreData
+        {
+            EnsureReady();
+            if (string.IsNullOrWhiteSpace(collection))
+                throw new ArgumentException("collection is null/empty.", nameof(collection));
+
+            QuerySnapshot snap = await _db.Collection(collection).GetSnapshotAsync();
+            var results = new List<T>(snap.Count);
+
+            foreach (DocumentSnapshot doc in snap.Documents)
+            {
+                if (doc.Exists)
+                    results.Add(doc.ConvertTo<T>());
+            }
+
+            return results;
+        }
+
         private void EnsureReady()
         {
             if (!IsInitialized || _db == null)

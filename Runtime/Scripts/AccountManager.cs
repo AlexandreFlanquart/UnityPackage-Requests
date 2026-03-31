@@ -137,6 +137,10 @@ namespace MyUnityPackage.Requests
             where T : class, IFirestoreData
             => FirestoreService.LoadDataAsync<T>(collection, documentId);
 
+        public Task<System.Collections.Generic.List<T>> GetCollectionAsync<T>(string collection)
+            where T : class, IFirestoreData
+            => FirestoreService.GetCollectionAsync<T>(collection);
+
         public string GetIDByCollection(string collection)
         {
             return FirestoreService.GetIDByCollection(collection);
