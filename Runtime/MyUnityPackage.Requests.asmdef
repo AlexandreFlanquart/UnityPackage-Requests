@@ -3,7 +3,14 @@
     "rootNamespace": "",
     "references": [
         "GUID:b54b67bb94f21ea4aa2feee402050eb2",
-        "GUID:8180e356022cba54686d96fb3a0401e9"
+        "GUID:8180e356022cba54686d96fb3a0401e9",
+        "Firebase.Auth",
+        "Firebase.App",
+        "Firebase.Database",
+        "Firebase.Storage",
+        "Firebase.Messaging",
+        "Firebase.Analytics",
+        "Firebase.Functions"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
